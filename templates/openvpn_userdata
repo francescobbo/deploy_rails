@@ -1,0 +1,153 @@
+#!/bin/bash
+
+# Run everything in the root home directory
+cd ~
+
+apt-get -y update && apt-get -y upgrade
+apt-get -y install openvpn easy-rsa expect
+
+make-cadir ~/openvpn-ca
+cd ~/openvpn-ca
+
+KEY_COUNTRY="UK"
+KEY_CITY="London"
+KEY_ORG="TheNextBigThing"
+KEY_EMAIL="me@nextbigthing.com"
+KEY_OU="DevOps"
+
+PUBLIC_IP="${elastic_ip}"
+
+# Update vars
+sed -i "s/export KEY_COUNTRY=\"[^\"]*\"/export KEY_COUNTRY=\"$KEY_COUNTRY\"/" vars
+sed -i "s/export KEY_PROVINCE=\"[^\"]*\"/export KEY_PROVINCE=\"$KEY_PROVINCE\"/" vars
+sed -i "s/export KEY_CITY=\"[^\"]*\"/export KEY_CITY=\"$KEY_CITY\"/" vars
+sed -i "s/export KEY_ORG=\"[^\"]*\"/export KEY_ORG=\"$KEY_ORG\"/" vars
+sed -i "s/export KEY_EMAIL=\"[^\"]*\"/export KEY_EMAIL=\"$KEY_EMAIL\"/" vars
+sed -i "s/export KEY_OU=\"[^\"]*\"/export KEY_OU=\"$KEY_OU\"/" vars
+sed -i "s/export KEY_NAME=\"[^\"]*\"/export KEY_NAME=\"server\"/" vars
+
+# Build the Certificate Authority
+source vars
+./clean-all
+yes "" | ./build-ca
+
+# Create the server certificate, key, and encryption files
+cat > build-keys.sh <<EOF
+#!/usr/bin/expect
+spawn ./build-key-server server
+expect "Country Name"
+send "\n"
+expect "State or Province Name"
+send "\n"
+expect "Locality Name"
+send "\n"
+expect "Organization Name"
+send "\n"
+expect "Organizational Unit Name"
+send "\n"
+expect "Common Name"
+send "\n"
+expect "Name"
+send "\n"
+expect "Email Address"
+send "\n"
+expect "A challenge password"
+send "\n"
+expect "An optional company name"
+send "\n"
+expect "Sign the certificate"
+send "y\n"
+expect "1 out of 1 certificate"
+send "y\n"
+expect "$ "
+EOF
+chmod +x build-keys.sh
+./build-keys.sh
+
+./build-dh
+openvpn --genkey --secret keys/ta.key
+
+# Copy the files to the OpenVPN directory
+cd ~/openvpn-ca/keys
+cp ca.crt ca.key server.crt server.key ta.key dh2048.pem /etc/openvpn
+gunzip -c /usr/share/doc/openvpn/examples/sample-config-files/server.conf.gz | sudo tee /etc/openvpn/server.conf
+
+# Adjust the OpenVPN configuration
+sed -i "s/;tls-auth ta.key 0/tls-auth ta.key 0\nkey-direction 0/" /etc/openvpn/server.conf
+sed -i "s/;cipher AES-128-CBC/cipher AES-128-CBC\nauth SHA256/" /etc/openvpn/server.conf
+sed -i "s/;user nobody/user nobody/" /etc/openvpn/server.conf
+sed -i "s/;group nogroup/group nogroup/" /etc/openvpn/server.conf
+
+echo 'push "route ${network_ip} ${subnet_mask}"' >> /etc/openvpn/server.conf
+
+# Allow IP forwarding
+sed -i "s/#net.ipv4.ip_forward/net.ipv4.ip_forward/" /etc/sysctl.conf
+sysctl -p
+
+# Install iptables-persistent so that rules can persist across reboots
+echo iptables-persistent iptables-persistent/autosave_v4 boolean true | sudo debconf-set-selections
+echo iptables-persistent iptables-persistent/autosave_v6 boolean true | sudo debconf-set-selections
+apt-get install -y iptables-persistent
+
+# Edit iptables rules to allow for forwarding
+iptables -t nat -A POSTROUTING -o tun+ -j MASQUERADE
+iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+
+# Make iptables rules persistent across reboots
+iptables-save > /etc/iptables/rules.v4
+
+# Start and enable the OpenVPN service
+systemctl start openvpn@server
+systemctl enable openvpn@server
+
+# Create the client config directory structure
+mkdir -p ~/client-configs/files
+
+# Create a base configuration
+cp /usr/share/doc/openvpn/examples/sample-config-files/client.conf ~/client-configs/base.conf
+sed -i "s/remote my-server-1 1194/remote $PUBLIC_IP 1194/" ~/client-configs/base.conf
+sed -i "s/;user nobody/user nobody/" ~/client-configs/base.conf
+sed -i "s/;group nogroup/group nogroup/" ~/client-configs/base.conf
+sed -i "s/ca ca.crt/#ca ca.crt/" ~/client-configs/base.conf
+sed -i "s/cert client.crt/#cert client.crt/" ~/client-configs/base.conf
+sed -i "s/key client.key/#key client.key/" ~/client-configs/base.conf
+echo "cipher AES-128-CBC" >> ~/client-configs/base.conf
+echo "auth SHA256" >> ~/client-configs/base.conf
+echo "key-direction 1" >> ~/client-configs/base.conf
+echo "#script-security 2" >> ~/client-configs/base.conf
+echo "#up /etc/openvpn/update-resolv-conf" >> ~/client-configs/base.conf
+echo "#down /etc/openvpn/update-resolv-conf" >> ~/client-configs/base.conf
+
+# Utility scripts
+cat > ~/gen_client_config.sh << EOF
+#!/bin/bash
+
+NAME=\$1
+
+if [ "\$NAME" = "" ]; then
+  echo "Usage: make-config.sh name"
+  exit;
+fi
+
+cd ~/openvpn-ca
+source vars
+./build-key \$NAME
+
+KEY_DIR=~/openvpn-ca/keys
+OUTPUT_DIR=~/client-configs/files
+BASE_CONFIG=~/client-configs/base.conf
+
+cat \$BASE_CONFIG \
+    <(echo -e '<ca>') \
+    \$KEY_DIR/ca.crt \
+    <(echo -e '</ca>\n<cert>') \
+    \$KEY_DIR/\$NAME.crt \
+    <(echo -e '</cert>\n<key>') \
+    \$KEY_DIR/\$NAME.key \
+    <(echo -e '</key>\n<tls-auth>') \
+    \$KEY_DIR/ta.key \
+    <(echo -e '</tls-auth>') \
+> \$OUTPUT_DIR/\$NAME.ovpn
+EOF
+
+chmod +x ~/gen_client_config.sh

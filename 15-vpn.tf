@@ -35,13 +35,13 @@ resource "aws_security_group" "openvpn" {
   }
 }
 
-# Search for an AMI (Amazon Machine Image) that runs Amazon Linux.
+# Search for an AMI (Amazon Machine Image) that runs Ubuntu.
 data "aws_ami" "amazon_linux" {
   most_recent = true
 
   filter {
     name   = "name"
-    values = ["amzn-ami-*-x86_64-gp2"]
+    values = ["ubuntu/images/hvm-ssd/ubuntu-xenial-16.04-amd64-server-*"]
   }
 
   filter {
@@ -49,9 +49,16 @@ data "aws_ami" "amazon_linux" {
     values = ["hvm"]
   }
 
-  filter {
-    name   = "owner-alias"
-    values = ["amazon"]
+  owners = ["099720109477"] # Canonical
+}
+
+data "template_file" "openvpn_userdata" {
+  template = "${file("templates/openvpn_userdata")}"
+
+  vars {
+    elastic_ip = "${aws_eip.openvpn.public_ip}"
+    network_ip = "${element(split("/", var.vpc_cidr), 0)}"
+    subnet_mask = "${cidrnetmask(var.vpc_cidr)}"
   }
 }
 
@@ -71,13 +78,20 @@ resource "aws_instance" "openvpn" {
   # Allow admin to SSH using their private key.
   key_name               = "${aws_key_pair.admin.key_name}"
 
+  # Configure an OpenVPN server on first startup.
+  user_data              = "${data.template_file.openvpn_userdata.rendered}"
+
   tags {
     Name = "OpenVPN"
   }
 }
 
 # An Elastic IPv4 (static IP) to associate to the OpenVPN Server
-resource "aws_eip" "lb" {
-  instance = "${aws_instance.openvpn.id}"
-  vpc      = true
+resource "aws_eip" "openvpn" {
+  vpc = true
+}
+
+resource "aws_eip_association" "openvpn_assoc" {
+  instance_id   = "${aws_instance.openvpn.id}"
+  allocation_id = "${aws_eip.openvpn.id}"
 }
