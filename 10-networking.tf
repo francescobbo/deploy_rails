@@ -35,8 +35,8 @@ resource "aws_subnet" "public" {
 
   availability_zone = "${data.aws_availability_zones.zones.names[count.index]}"
 
-  vpc_id     = "${aws_vpc.app.id}"
-  cidr_block = "${cidrsubnet(var.vpc_cidr, 8, count.index)}"
+  vpc_id            = "${aws_vpc.app.id}"
+  cidr_block        = "${cidrsubnet(var.vpc_cidr, 8, count.index)}"
 }
 
 resource "aws_subnet" "private" {
@@ -44,8 +44,8 @@ resource "aws_subnet" "private" {
 
   availability_zone = "${data.aws_availability_zones.zones.names[count.index]}"
 
-  vpc_id     = "${aws_vpc.app.id}"
-  cidr_block = "${cidrsubnet(var.vpc_cidr, 8, count.index + 3)}"
+  vpc_id            = "${aws_vpc.app.id}"
+  cidr_block        = "${cidrsubnet(var.vpc_cidr, 8, count.index + 3)}"
 }
 
 # What defines a subnet to be public or private is it's route table.
@@ -64,7 +64,7 @@ resource "aws_route_table" "public" {
 
   # Route any non-VPC IPv6 traffic to the IPv6 IGW
   route {
-    ipv6_cidr_block = "::/0"
+    ipv6_cidr_block        = "::/0"
     egress_only_gateway_id = "${aws_egress_only_internet_gateway.gw.id}"
   }
 }
@@ -74,7 +74,7 @@ resource "aws_route_table" "private" {
 
   # Route any non-VPC IPv6 traffic to the IPv6 IGW
   route {
-    ipv6_cidr_block = "::/0"
+    ipv6_cidr_block        = "::/0"
     egress_only_gateway_id = "${aws_egress_only_internet_gateway.gw.id}"
   }
 }
