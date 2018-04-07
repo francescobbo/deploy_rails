@@ -81,6 +81,12 @@ resource "aws_route_table" "public" {
 resource "aws_route_table" "private" {
   vpc_id = "${aws_vpc.app.id}"
 
+  # Route all IPv4 traffic from private instance through the VPN server.
+  route {
+    cidr_block             = "0.0.0.0/0"
+    instance_id            = "${aws_instance.openvpn.id}"
+  }
+
   # Route any non-VPC IPv6 traffic to the IPv6 IGW
   route {
     ipv6_cidr_block        = "::/0"

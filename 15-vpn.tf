@@ -26,6 +26,14 @@ resource "aws_security_group" "openvpn" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  # Allow all traffic incoming from the rest of the VPC (needed for NATting).
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["${aws_vpc.app.cidr_block}"]
+  }
+
   # Allow all sort of outbound traffic.
   egress {
     from_port   = 0
