@@ -37,6 +37,10 @@ resource "aws_subnet" "public" {
 
   vpc_id            = "${aws_vpc.app.id}"
   cidr_block        = "${cidrsubnet(var.vpc_cidr, 8, count.index)}"
+
+  # Actually enable IPv6 addressing in the subnet.
+  assign_ipv6_address_on_creation = true
+  ipv6_cidr_block   = "${cidrsubnet(aws_vpc.app.ipv6_cidr_block, 8, count.index)}"
 }
 
 resource "aws_subnet" "private" {
@@ -46,6 +50,11 @@ resource "aws_subnet" "private" {
 
   vpc_id            = "${aws_vpc.app.id}"
   cidr_block        = "${cidrsubnet(var.vpc_cidr, 8, count.index + 3)}"
+
+  # Actually enable IPv6 addressing in the subnet.
+  assign_ipv6_address_on_creation = true
+
+  ipv6_cidr_block   = "${cidrsubnet(aws_vpc.app.ipv6_cidr_block, 8, count.index + 3)}"
 }
 
 # What defines a subnet to be public or private is it's route table.
