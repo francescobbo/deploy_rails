@@ -36,7 +36,7 @@ resource "aws_security_group" "openvpn" {
 }
 
 # Search for an AMI (Amazon Machine Image) that runs Ubuntu.
-data "aws_ami" "amazon_linux" {
+data "aws_ami" "ubuntu" {
   most_recent = true
 
   filter {
@@ -65,7 +65,7 @@ data "template_file" "openvpn_userdata" {
 # This instance will run an OpenVPN server allowing you to connect to the VPC
 # from your office or home and share the same IP space.
 resource "aws_instance" "openvpn" {
-  ami                    = "${data.aws_ami.amazon_linux.id}"
+  ami                    = "${data.aws_ami.ubuntu.id}"
   instance_type          = "${var.vpn_instance_type}"
 
   # Must run in a public subnet (visible on the Internet)
